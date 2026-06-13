@@ -1,42 +1,62 @@
+// ご自身のRenderのURLに書き換えてください
 const socket = io('https://ss-c7iw.onrender.com/');
 const videoElement = document.getElementById('remoteVideo');
 let dataChannel;
 
-// WebRTCの設定（Googleの無料STUNサーバーを利用してNAT越え）
+console.log("リモートデスクトップスクリプトを読み込みました。");
+
 const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 const peerConnection = new RTCPeerConnection(configuration);
 
-// 映像を受信したときの処理
+// 【追加】サーバーに接続できたら、Python側に「準備できたよ」と伝える
+socket.on('connect', () => {
+    console.log("シグナリングサーバーに接続しました。Pythonに準備完了を通知します...");
+    socket.emit('message', { type: 'ready' });
+});
+
+// 映像が届いたらvideoタグに流し込む
 peerConnection.ontrack = (event) => {
-    console.log("映像ストリームを受信しました！");
+    console.log("映像ストリームを受信しました！画面を表示します。");
     videoElement.srcObject = event.streams[0];
-    // 強制的に再生を開始させる
     videoElement.play().catch(e => console.error("再生エラー:", e));
 };
 
-// シグナリングサーバーとの通信
+peerConnection.ondatachannel = (event) => {
+    dataChannel = event.channel;
+    console.log("操作用データチャネルが確立しました。");
+};
+
+// サーバーからメッセージが届いたときの処理
 socket.on('message', async (message) => {
     if (message.type === 'offer') {
+        console.log("PythonからOfferを受信しました。応答(Answer)を作成中...");
         await peerConnection.setRemoteDescription(new RTCSessionDescription(message));
+        
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
-        socket.emit('message', peerConnection.localDescription);
-    } else if (message.type === 'candidate') {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+        
+        peerConnection.onicegatheringstatechange = () => {
+            if (peerConnection.iceGatheringState === 'complete') {
+                console.log("Answerを送信します。");
+                socket.emit('message', {
+                    type: peerConnection.localDescription.type,
+                    sdp: peerConnection.localDescription.sdp
+                });
+            }
+        };
+        
+        if (peerConnection.iceGatheringState === 'complete') {
+            socket.emit('message', {
+                type: peerConnection.localDescription.type,
+                sdp: peerConnection.localDescription.sdp
+            });
+        }
     }
 });
 
-// ICE Candidateの送信
-peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-        socket.emit('message', { type: 'candidate', candidate: event.candidate });
-    }
-};
-
-// 操作データの送信（マウスやタップの処理）
+// 操作送信
 videoElement.addEventListener('pointerdown', (e) => {
     if (dataChannel && dataChannel.readyState === 'open') {
-        // ※実際には動画のサイズと実際のPCの解像度の比率計算が必要です
         const rect = videoElement.getBoundingClientRect();
         const x = (e.clientX - rect.left) / rect.width;
         const y = (e.clientY - rect.top) / rect.height;
