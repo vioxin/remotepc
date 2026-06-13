@@ -1,4 +1,4 @@
-const socket = io('https://あなたのRenderのURL.onrender.com');
+const socket = io('https://ss-c7iw.onrender.com/');
 const videoElement = document.getElementById('remoteVideo');
 let dataChannel;
 
