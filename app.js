@@ -8,7 +8,10 @@ const peerConnection = new RTCPeerConnection(configuration);
 
 // 映像を受信したときの処理
 peerConnection.ontrack = (event) => {
+    console.log("映像ストリームを受信しました！");
     videoElement.srcObject = event.streams[0];
+    // 強制的に再生を開始させる
+    videoElement.play().catch(e => console.error("再生エラー:", e));
 };
 
 // シグナリングサーバーとの通信
